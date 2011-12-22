@@ -1,0 +1,25 @@
+Sound effects controller using TouchOSC for control, txosc to receive, and QtKit to play media.
+
+The code is not clean by any standards; my excuse is that I almost live-coded it.
+
+You'll need to install txosc (from bitbucket), py27-pyobjc-cocca from
+MacPorts (or however else you want to get it), and pip install qtkit.
+
+In the Android version of TouchOSC, on the Simple layout, 2nd tab,
+you'll find a grid of 16 buttons. That's what this listens
+for. Adapting it to some other OSC controller should be trivial.
+
+The playlist file format is line-oriented. Example:
+
+1=music.mp3@1.0@.5
+# comment
+4=bang.mp3@0.0once@1
+
+The first number is which of the 16 buttons the mapping is for
+(top-left is 1; last assignment wins). The remainder of the line is:
+filename@time@volume.
+
+The 'time' field has a special mode: if it ends with 'once', hitting
+the button again causes the sound to repeat from the beginning --
+useful for sound effects. Otherwise, hitting the button again stops
+the media if it's currently playing -- useful for background music.

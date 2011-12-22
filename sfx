@@ -1,0 +1,136 @@
+#!/usr/bin/env python
+# Sound Effects with txosc and TouchOSC.
+#  2011, Kenenth C. Arnold, BSD license.
+# 
+# Based on txosc example code Copyright (c) 2009 Alexandre Quessy, Arjan Scherpenisse
+
+import sys
+import optparse
+from twisted.internet import reactor
+import txosc # for __version__
+from txosc import osc
+from txosc import dispatch
+from txosc import async
+import re
+r = re.compile('/2/push(\d+)$')
+
+VERBOSE = False
+
+def verb(txt):
+    """
+    Prints a message if in verbose mode.
+    """
+    global VERBOSE
+    if VERBOSE:
+        print(txt)
+
+movies = {}
+playing = {}
+filenames = {}
+times = {}
+oneshots = {}
+def load_movies(args):
+    import QTKit
+    playlist_f = open(args[0])
+    for line in playlist_f:
+        line = line.rstrip('\n')
+        if not line: continue
+        if line.startswith('#'): continue
+        idx, line = line.split('=',1)
+        idx = int(idx)-1
+        f, time, vol = line.split('@')
+        if time.endswith('once'):
+            time = time[:-4]
+            oneshot = True
+        else:
+            oneshot = False
+        time = float(time)
+        movie, error = QTKit.QTMovie.movieWithFile_error_(f, None)
+        if error:
+            print 'Error loading', f
+            print error
+        else:
+            movies[idx]=movie
+            times[idx]=time
+            playing[idx] = False
+            oneshots[idx]=oneshot
+            filenames[idx]=f
+            movie.setVolume_(float(vol))
+            print '%d=%s' % (idx, f)
+
+def fallback(message, address):
+    """
+    Fallback for any unhandled message
+    """
+    m = r.match(message.address)
+    if m:
+        which = int(m.group(1)) - 1
+        onoff = bool(float(message.arguments[0]))
+        #print which, onoff
+        if which in movies:
+            if onoff:
+                #playing[which] = not playing[which]
+                movie = movies[which]
+                if oneshots[which] or not movie.isPlaying():#playing[which]:
+                    print 'Playing', filenames[which]
+                    if times[which] >= 0:
+                        ct = list(movie.currentTime())
+                        ct[0] = int(times[which]*ct[1])
+                        movie.setCurrentTime_(tuple(ct))
+                    movie.play()
+                else:
+                    print 'Stop', filenames[which]
+                    movies[which].stop()
+    else:
+        print("%s from %s" % (message, address))
+        from pprint import pprint
+        #pprint(message.__dict__)
+
+def _exit(txt):
+    print(txt)
+    sys.exit(1)
+
+class OscDumper(object): 
+    """
+    Prints OSC messages it receives.
+    """
+    def __init__(self, protocol, port, multicast_group=None):
+        self.receiver = dispatch.Receiver()
+        if protocol == "UDP":
+            if multicast_group is not None:
+                self._server_port = reactor.listenMulticast(port, async.MulticastDatagramServerProtocol(self.receiver, multicast_group), listenMultiple=True)
+            else:
+                self._server_port = reactor.listenUDP(port, async.DatagramServerProtocol(self.receiver))
+        else:
+            self._server_port = reactor.listenTCP(port, async.ServerFactory(self.receiver))
+        host = "localhost"
+        if multicast_group is not None:
+            host = multicast_group
+        print("Listening on osc.%s://%s:%s" % (protocol.lower(), host, port))
+        
+        # fallback:
+        self.receiver.setFallback(fallback)
+
+if __name__ == "__main__":
+    parser = optparse.OptionParser(usage="%prog", version=txosc.__version__.strip(), description=__doc__)
+    parser.add_option("-p", "--port", type="int", default=31337, help="Port to listen on")
+    parser.add_option("-g", "--multicast-group", type="string", help="Multicast group to listen on")
+    parser.add_option("-v", "--verbose", action="store_true", help="Makes the output verbose")
+    parser.add_option("-T", "--tcp", action="store_true", help="Uses TCP instead of UDP")
+    (options, args) = parser.parse_args()
+    load_movies(args)
+    app = None
+    protocol = "UDP"
+    multicast_group = None
+    if options.tcp:
+        protocol = "TCP"
+    if options.multicast_group:
+        if protocol != "UDP":
+            _exit("Multicast groups are only supported with UDP.")
+        else:
+            multicast_group = options.multicast_group
+    def _later():
+        app = OscDumper(protocol, options.port, multicast_group)
+    reactor.callLater(0.01, _later)
+    reactor.run()
+
