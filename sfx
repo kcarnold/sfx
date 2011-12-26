@@ -4,11 +4,11 @@
 # 
 # Based on txosc example code Copyright (c) 2009 Alexandre Quessy, Arjan Scherpenisse
 
-import sys
+import sys, os, stat
 import optparse
 from twisted.internet import reactor
 import txosc # for __version__
-from txosc import osc
+#from txosc import osc
 from txosc import dispatch
 from txosc import async
 import re
@@ -24,39 +24,6 @@ def verb(txt):
     if VERBOSE:
         print(txt)
 
-movies = {}
-playing = {}
-filenames = {}
-times = {}
-oneshots = {}
-def load_movies(args):
-    import QTKit
-    playlist_f = open(args[0])
-    for line in playlist_f:
-        line = line.rstrip('\n')
-        if not line: continue
-        if line.startswith('#'): continue
-        idx, line = line.split('=',1)
-        idx = int(idx)-1
-        f, time, vol = line.split('@')
-        if time.endswith('once'):
-            time = time[:-4]
-            oneshot = True
-        else:
-            oneshot = False
-        time = float(time)
-        movie, error = QTKit.QTMovie.movieWithFile_error_(f, None)
-        if error:
-            print 'Error loading', f
-            print error
-        else:
-            movies[idx]=movie
-            times[idx]=time
-            playing[idx] = False
-            oneshots[idx]=oneshot
-            filenames[idx]=f
-            movie.setVolume_(float(vol))
-            print '%d=%s' % (idx, f)
 
 def fallback(message, address):
     """
@@ -66,21 +33,9 @@ def fallback(message, address):
     if m:
         which = int(m.group(1)) - 1
         onoff = bool(float(message.arguments[0]))
-        #print which, onoff
-        if which in movies:
-            if onoff:
-                #playing[which] = not playing[which]
-                movie = movies[which]
-                if oneshots[which] or not movie.isPlaying():#playing[which]:
-                    print 'Playing', filenames[which]
-                    if times[which] >= 0:
-                        ct = list(movie.currentTime())
-                        ct[0] = int(times[which]*ct[1])
-                        movie.setCurrentTime_(tuple(ct))
-                    movie.play()
-                else:
-                    print 'Stop', filenames[which]
-                    movies[which].stop()
+        if onoff:
+            f.write('%s\n' % which)
+            f.flush()
     else:
         print("%s from %s" % (message, address))
         from pprint import pprint
@@ -118,7 +73,14 @@ if __name__ == "__main__":
     parser.add_option("-v", "--verbose", action="store_true", help="Makes the output verbose")
     parser.add_option("-T", "--tcp", action="store_true", help="Uses TCP instead of UDP")
     (options, args) = parser.parse_args()
-    load_movies(args)
+    FIFO_NAME = 'comm'
+    if os.path.exists(FIFO_NAME):
+        if not (os.stat(FIFO_NAME).st_mode & stat.S_IFIFO):
+            print >> sys.stderr, "Error:", FIFO_NAME, "exists and is not a fifo. Move it aside?"
+            sys.exit(1)
+    else:
+        os.mkfifo(FIFO_NAME)
+    f = open(FIFO_NAME, 'w')
     app = None
     protocol = "UDP"
     multicast_group = None
@@ -130,6 +92,7 @@ if __name__ == "__main__":
         else:
             multicast_group = options.multicast_group
     def _later():
+        global app
         app = OscDumper(protocol, options.port, multicast_group)
     reactor.callLater(0.01, _later)
     reactor.run()

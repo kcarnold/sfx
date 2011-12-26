@@ -1,0 +1,55 @@
+movies = {}
+playing = {}
+filenames = {}
+times = {}
+oneshots = {}
+def load_movies(args):
+    import QTKit
+    playlist_f = open(args[0])
+    for line in playlist_f:
+        line = line.rstrip('\n')
+        if not line: continue
+        if line.startswith('#'): continue
+        idx, line = line.split('=',1)
+        idx = int(idx)-1
+        f, time, vol = line.split('@')
+        if time.endswith('once'):
+            time = time[:-4]
+            oneshot = True
+        else:
+            oneshot = False
+        time = float(time)
+        movie, error = QTKit.QTMovie.movieWithFile_error_(f, None)
+        if error:
+            print 'Error loading', f
+            print error
+        else:
+            movies[idx]=movie
+            times[idx]=time
+            playing[idx] = False
+            oneshots[idx]=oneshot
+            filenames[idx]=f
+            movie.setVolume_(float(vol))
+            print '%d=%s' % (idx+1, f)
+
+def listener(f):
+    while True:
+        line = f.readline()
+        which = int(line.strip())
+        if which in movies:
+            #playing[which] = not playing[which]
+            movie = movies[which]
+            if oneshots[which] or not movie.isPlaying():#playing[which]:
+                print 'Playing', filenames[which]
+                if times[which] >= 0:
+                    ct = list(movie.currentTime())
+                    ct[0] = int(times[which]*ct[1])
+                    movie.setCurrentTime_(tuple(ct))
+                movie.play()
+            else:
+                print 'Stop', filenames[which]
+                movies[which].stop()
+
+import sys
+load_movies(sys.argv[1:])
+listener(open('comm'))
